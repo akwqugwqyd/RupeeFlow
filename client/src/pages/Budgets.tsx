@@ -1,0 +1,52 @@
+import { useEffect, useState } from "react";
+import toast from "react-hot-toast";
+import { Empty, Input, PageTitle, Panel, Select } from "../components/ui";
+import { api } from "../lib/api";
+import { getCategories } from "../lib/data";
+import { money, monthInput } from "../lib/format";
+import { useAuth } from "../state/AuthContext";
+
+export default function Budgets() {
+  const { user } = useAuth();
+  const [month, setMonth] = useState(monthInput());
+  const [budgets, setBudgets] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [form, setForm] = useState({ category: "Food", limit: "" });
+
+  async function load() {
+    const [budgetRes, cats] = await Promise.all([api.get("/budgets", { params: { month } }), getCategories()]);
+    setBudgets(budgetRes.data);
+    setCategories(cats.filter((c: any) => c.type !== "income"));
+  }
+  useEffect(() => { load().catch(() => toast.error("Could not load budgets")); }, [month]);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    await api.post("/budgets", { ...form, month });
+    setForm({ ...form, limit: "" });
+    toast.success("Budget saved");
+    await load();
+  }
+
+  return (
+    <div className="px-4 py-6 sm:px-6">
+      <PageTitle title="Budgets" subtitle="Set monthly limits and get warned when usage crosses 80%." />
+      <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
+        <Panel title="Add budget">
+          <form onSubmit={save} className="grid gap-3">
+            <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+            <Select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>{categories.map((c) => <option key={c._id}>{c.name}</option>)}</Select>
+            <Input required type="number" placeholder="Monthly limit" value={form.limit} onChange={(e) => setForm({ ...form, limit: e.target.value })} />
+            <button className="rounded bg-[#4f46e5] px-4 py-2 font-medium text-white">Save budget</button>
+          </form>
+        </Panel>
+        <Panel title="Usage">
+          <div className="grid gap-3 md:grid-cols-2">
+            {budgets.map((budget) => <div key={budget._id} className="rounded border border-[#e5e7eb] p-4"><div className="flex justify-between"><p className="font-medium">{budget.category}</p><p className={budget.alert ? "text-[#be123c]" : "text-[#6b7280]"}>{budget.percentUsed}%</p></div><p className="mt-1 text-sm text-[#6b7280]">{money(budget.spent, "INR")} / {money(budget.limit, "INR")}</p><div className="mt-3 h-2 rounded bg-[#e5e7eb]"><div className={`h-2 rounded ${budget.alert ? "bg-[#be123c]" : "bg-[#4f46e5]"}`} style={{ width: `${Math.min(budget.percentUsed, 100)}%` }} /></div></div>)}
+          </div>
+          {!budgets.length && <Empty text="No budgets for this month." />}
+        </Panel>
+      </div>
+    </div>
+  );
+}
