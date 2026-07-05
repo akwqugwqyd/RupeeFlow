@@ -18,7 +18,13 @@ import transactionRoutes from "./routes/transaction.routes.js";
 export function createApp() {
   const config = env();
   const app = express();
-  const allowedOrigins = config.CLIENT_URL.split(",").map((origin) => origin.trim()).filter(Boolean);
+  const vercelOrigins = [process.env.VERCEL_URL, process.env.VERCEL_PROJECT_PRODUCTION_URL]
+    .filter(Boolean)
+    .map((host) => `https://${host}`);
+  const allowedOrigins = new Set([
+    ...config.CLIENT_URL.split(",").map((origin) => origin.trim()).filter(Boolean),
+    ...vercelOrigins
+  ]);
   const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 300, standardHeaders: true, legacyHeaders: false });
   const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false });
   const aiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false });
@@ -28,7 +34,7 @@ export function createApp() {
   app.use(helmet());
   app.use(cors({
     origin(origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+      if (!origin || allowedOrigins.has(origin)) return callback(null, true);
       return callback(new Error("Origin is not allowed by CORS"));
     },
     credentials: true,

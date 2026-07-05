@@ -7,7 +7,7 @@ export async function connectDb() {
   await mongoose.connect(env().MONGODB_URI, {
     serverSelectionTimeoutMS: 10_000,
     maxPoolSize: 20,
-    minPoolSize: env().NODE_ENV === "production" ? 2 : 0
+    minPoolSize: process.env.VERCEL ? 0 : env().NODE_ENV === "production" ? 2 : 0
   });
   logger.info("database.connected");
 }
