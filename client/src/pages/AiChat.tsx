@@ -26,9 +26,9 @@ export default function AiChat() {
     try {
       const history = messages.slice(-8).map((msg) => ({ role: msg.role, text: msg.text }));
       const { data } = await api.post("/ai/chat", { message: question, history });
-      setMessages((prev) => [...prev, { role: "assistant", text: data.answer, chart: data.chart, chartTitle: data.chartTitle, mode: data.mode }]);
-    } catch {
-      toast.error("AI assistant could not answer");
+      setMessages((prev) => [...prev, { role: "assistant", text: data.answer, chart: data.chart, chartTitle: data.chartTitle, evidence: data.evidence, disclaimer: data.disclaimer, mode: data.mode }]);
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "AI assistant could not answer");
     } finally {
       setLoading(false);
     }
@@ -42,7 +42,7 @@ export default function AiChat() {
           <p className="text-sm font-medium text-[#64748b]">Ask questions about spending, budgets, trends, and recent transactions.</p>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-[#f8fafc] p-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-[#f8fafc] p-4" aria-live="polite">
           {messages.map((msg, index) => (
             <div key={index} className={`max-w-3xl rounded-2xl p-3 shadow-sm ${msg.role === "user" ? "ml-auto bg-[#4f46e5] text-white shadow-indigo-200" : "border border-[#e2e8f0] bg-white text-[#111827] shadow-slate-200/70"}`}>
               <div className="flex items-start gap-2">
@@ -62,6 +62,12 @@ export default function AiChat() {
                   </ResponsiveContainer>
                 </div>
               )}
+              {msg.evidence?.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {msg.evidence.map((item: any, evidenceIndex: number) => <span key={evidenceIndex} className="rounded-full bg-indigo-50 px-2 py-1 text-xs font-bold text-indigo-700">{item.label}: {money(item.value, "INR")}</span>)}
+                </div>
+              )}
+              {msg.disclaimer && <p className="mt-3 border-t border-slate-100 pt-2 text-xs text-slate-500">{msg.disclaimer}</p>}
             </div>
           ))}
           {loading && <Empty text="Thinking through your transactions..." />}
@@ -69,7 +75,7 @@ export default function AiChat() {
 
         <form onSubmit={send} className="flex gap-2 border-t border-[#e2e8f0] bg-white p-3">
           <Input value={input} onChange={(e) => setInput(e.target.value)} placeholder="How much did I spend on food this month?" />
-          <button className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#4f46e5] text-white shadow-lg shadow-indigo-200 transition hover:bg-[#4338ca]" title="Send"><Send size={18} /></button>
+          <button disabled={loading || !input.trim()} aria-label="Send question" className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#4f46e5] text-white shadow-lg shadow-indigo-200 transition hover:bg-[#4338ca] disabled:opacity-50" title="Send"><Send size={18} /></button>
         </form>
       </section>
     </div>

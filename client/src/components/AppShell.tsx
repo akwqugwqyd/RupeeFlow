@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
-import { BarChart3, Bot, Download, LogOut, Settings, Tags, WalletCards } from "lucide-react";
+import { BarChart3, Bot, Download, FileBarChart, LogOut, Settings, Tags, WalletCards } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth } from "../state/AuthContext";
 
@@ -32,6 +32,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           <NavItem to="/" icon={BarChart3} label="Dashboard" />
           <NavItem to="/transactions" icon={WalletCards} label="Transactions" />
           <NavItem to="/budgets" icon={Tags} label="Budgets" />
+          <NavItem to="/reports" icon={FileBarChart} label="Reports" />
           <NavItem to="/ai-chat" icon={Bot} label="AI Chat" />
           <NavItem to="/settings" icon={Settings} label="Settings" />
         </nav>
@@ -58,6 +59,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           <NavPill to="/" label="Dashboard" />
           <NavPill to="/transactions" label="Transactions" />
           <NavPill to="/budgets" label="Budgets" />
+          <NavPill to="/reports" label="Reports" />
           <NavPill to="/ai-chat" label="AI Chat" />
           <NavPill to="/settings" label="Settings" />
         </nav>

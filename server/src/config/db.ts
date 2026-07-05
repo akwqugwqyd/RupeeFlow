@@ -1,12 +1,18 @@
 import mongoose from "mongoose";
+import { env } from "./env.js";
+import { logger } from "../utils/logger.js";
 
 export async function connectDb() {
-  const uri = process.env.MONGODB_URI;
-  if (!uri) {
-    throw new Error("MONGODB_URI is required");
-  }
-
   mongoose.set("strictQuery", true);
-  await mongoose.connect(uri);
-  console.log("MongoDB connected");
+  await mongoose.connect(env().MONGODB_URI, {
+    serverSelectionTimeoutMS: 10_000,
+    maxPoolSize: 20,
+    minPoolSize: env().NODE_ENV === "production" ? 2 : 0
+  });
+  logger.info("database.connected");
+}
+
+export async function disconnectDb() {
+  await mongoose.disconnect();
+  logger.info("database.disconnected");
 }

@@ -4,7 +4,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { validate } from "../middleware/validate.js";
 import Budget from "../models/Budget.js";
 import Transaction from "../models/Transaction.js";
-import { currentMonth, monthBounds } from "../utils/finance.js";
+import { budgetMetrics, currentMonth, monthBounds, roundMoney, shiftMonth } from "../utils/finance.js";
 
 const router = express.Router();
 const body = z.object({ category: z.string().min(1), limit: z.coerce.number().positive(), month: z.string().regex(/^\d{4}-\d{2}$/) });
@@ -15,17 +15,29 @@ router.get("/", validate(z.object({ query: z.object({ month: z.string().regex(/^
   try {
     const { month } = req.validated.query;
     const { start, end } = monthBounds(month);
-    const [budgets, spend] = await Promise.all([
+    const historyStart = monthBounds(shiftMonth(month, -3)).start;
+    const [budgets, spend, history] = await Promise.all([
       Budget.find({ user: req.user._id, month }).sort({ category: 1 }).lean(),
       Transaction.aggregate([
         { $match: { user: req.user._id, type: "expense", date: { $gte: start, $lt: end } } },
         { $group: { _id: "$category", spent: { $sum: "$amount" } } }
+      ]),
+      Transaction.aggregate([
+        { $match: { user: req.user._id, type: "expense", date: { $gte: historyStart, $lt: start } } },
+        { $group: { _id: "$category", average: { $avg: "$amount" }, total: { $sum: "$amount" } } }
       ])
     ]);
     const spentByCategory = Object.fromEntries(spend.map((item) => [item._id, item.spent]));
+    const historicalByCategory = Object.fromEntries(history.map((item) => [item._id, item.total / 3]));
     res.json(budgets.map((budget) => {
-      const spent = spentByCategory[budget.category] || 0;
-      return { ...budget, spent, percentUsed: Math.round((spent / Math.max(budget.limit, 1)) * 100), alert: spent >= budget.limit * 0.8 };
+      const metrics = budgetMetrics(budget.limit, spentByCategory[budget.category] || 0, month, historicalByCategory[budget.category] || 0);
+      return {
+        ...budget,
+        ...metrics,
+        previousThreeMonthAverage: roundMoney(historicalByCategory[budget.category] || 0),
+        suggestedLimit: metrics.recommendedLimit,
+        alert: metrics.status !== "healthy"
+      };
     }));
   } catch (error) {
     next(error);
@@ -47,7 +59,8 @@ router.post("/", validate(z.object({ body })), async (req, res, next) => {
 
 router.delete("/:id", validate(z.object({ params: z.object({ id: z.string().min(1) }) })), async (req, res, next) => {
   try {
-    await Budget.findOneAndDelete({ _id: req.validated.params.id, user: req.user._id });
+    const deleted = await Budget.findOneAndDelete({ _id: req.validated.params.id, user: req.user._id });
+    if (!deleted) return res.status(404).json({ message: "Budget not found" });
     res.status(204).end();
   } catch (error) {
     next(error);

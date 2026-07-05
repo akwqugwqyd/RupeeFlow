@@ -6,7 +6,7 @@ declare global {
     interface Request {
       user?: HydratedDocument<any>;
       validated?: any;
+      requestId?: string;
     }
   }
 }
-

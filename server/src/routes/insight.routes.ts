@@ -6,6 +6,7 @@ import { validate } from "../middleware/validate.js";
 import Budget from "../models/Budget.js";
 import Transaction from "../models/Transaction.js";
 import { currentMonth, monthBounds } from "../utils/finance.js";
+import { env } from "../config/env.js";
 
 const router = express.Router();
 router.use(requireAuth);
@@ -27,19 +28,26 @@ router.get(
         return res.json({ source: "rules", insights: ruleBasedInsights(profile) });
       }
 
-      const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      if (!transactions.length) {
+        return res.json({
+          source: "rules",
+          insights: [{ title: "Not enough data", detail: "Add transactions for this month to generate grounded insights.", severity: "medium" }],
+          disclaimer: "Insights are based on tracked data and are not financial advice."
+        });
+      }
+      const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 15_000, maxRetries: 2 });
       const completion = await client.chat.completions.create({
-        model: "gpt-4o-mini",
-        temperature: 0.2,
+        model: env().OPENAI_MODEL,
+        temperature: 0,
         messages: [
-          { role: "system", content: "You are a practical financial coach. Return concise JSON with an insights array. Do not provide legal or investment advice." },
+          { role: "system", content: "Return concise JSON with an insights array using only the supplied aggregates. Never invent amounts, balances, or transactions. If evidence is insufficient, say so. This is not financial advice." },
           { role: "user", content: JSON.stringify({ month, profile }) }
         ],
         response_format: { type: "json_object" }
       });
 
       const parsed = JSON.parse(completion.choices[0].message.content);
-      res.json({ source: "openai", insights: parsed.insights || [] });
+      res.json({ source: "openai", insights: parsed.insights || [], disclaimer: "Insights are based on tracked data and are not financial advice." });
     } catch (error) {
       next(error);
     }

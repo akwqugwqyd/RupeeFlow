@@ -16,6 +16,7 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem("rupeeflow_token");
       localStorage.removeItem("rupeeflow_user");
+      window.dispatchEvent(new Event("rupeeflow:unauthorized"));
     }
     return Promise.reject(error);
   }

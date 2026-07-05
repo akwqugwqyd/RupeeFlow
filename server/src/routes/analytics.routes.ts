@@ -3,71 +3,49 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/auth.js";
 import { validate } from "../middleware/validate.js";
 import Bill from "../models/Bill.js";
-import Budget from "../models/Budget.js";
 import Goal from "../models/Goal.js";
 import Transaction from "../models/Transaction.js";
-import { currentMonth, monthBounds } from "../utils/finance.js";
+import { buildOverview, buildReport } from "../services/analytics.service.js";
+import { nextOccurrence } from "../services/recurring.service.js";
+import { currentMonth } from "../utils/finance.js";
 
 const router = express.Router();
+const monthSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
 router.use(requireAuth);
 
 router.get(
   "/overview",
-  validate(z.object({ query: z.object({ month: z.string().regex(/^\d{4}-\d{2}$/).default(currentMonth()) }) })),
+  validate(z.object({ query: z.object({ month: monthSchema.default(currentMonth()) }) })),
   async (req, res, next) => {
     try {
       const { month } = req.validated.query;
-      const { start, end } = monthBounds(month);
-      const sixMonthsAgo = new Date(start);
-      sixMonthsAgo.setUTCMonth(sixMonthsAgo.getUTCMonth() - 5);
-
-      const [monthlyTotals, categorySpend, cashflow, budgets, goals, bills, recent] = await Promise.all([
-        Transaction.aggregate([
-          { $match: { user: req.user._id, date: { $gte: start, $lt: end } } },
-          { $group: { _id: "$type", total: { $sum: "$amount" } } }
-        ]),
-        Transaction.aggregate([
-          { $match: { user: req.user._id, type: "expense", date: { $gte: start, $lt: end } } },
-          { $group: { _id: "$category", total: { $sum: "$amount" } } },
-          { $sort: { total: -1 } }
-        ]),
-        Transaction.aggregate([
-          { $match: { user: req.user._id, date: { $gte: sixMonthsAgo, $lt: end } } },
-          {
-            $group: {
-              _id: { month: { $dateToString: { format: "%Y-%m", date: "$date" } }, type: "$type" },
-              total: { $sum: "$amount" }
-            }
-          },
-          { $sort: { "_id.month": 1 } }
-        ]),
-        Budget.find({ user: req.user._id, month }).lean(),
+      const [analytics, goals, bills, recent, templates] = await Promise.all([
+        buildOverview(req.user._id, month),
         Goal.find({ user: req.user._id }).sort({ targetDate: 1 }).lean(),
         Bill.find({ user: req.user._id, status: "active" }).sort({ dueDay: 1 }).lean(),
-        Transaction.find({ user: req.user._id }).sort({ date: -1, createdAt: -1 }).limit(8).lean()
+        Transaction.find({ user: req.user._id }).sort({ date: -1, createdAt: -1 }).limit(8).lean(),
+        Transaction.find({
+          user: req.user._id,
+          isRecurring: true,
+          recurringStatus: { $ne: "paused" },
+          recurringTemplate: { $exists: false }
+        }).lean()
       ]);
-
-      const totals = Object.fromEntries(monthlyTotals.map((item) => [item._id, item.total]));
-      const budgetLimit = budgets.reduce((sum, item) => sum + item.limit, 0);
-      const billTotal = bills.reduce((sum, item) => sum + item.amount, 0);
-      const cashflowRows = normalizeCashflow(cashflow);
-
+      const upcomingRecurring = templates
+        .map((template) => ({ ...template, nextDate: nextOccurrence(template)?.toISOString() }))
+        .filter((item) => item.nextDate)
+        .sort((a, b) => String(a.nextDate).localeCompare(String(b.nextDate)))
+        .slice(0, 8);
       res.json({
-        month,
-        summary: {
-          income: totals.income || 0,
-          expenses: totals.expense || 0,
-          net: (totals.income || 0) - (totals.expense || 0),
-          savingsRate: totals.income ? Math.round((((totals.income || 0) - (totals.expense || 0)) / totals.income) * 100) : 0,
-          budgetLimit,
-          billTotal
-        },
-        categorySpend: categorySpend.map((item) => ({ category: item._id, total: item.total })),
-        cashflow: cashflowRows,
-        spendingTrend: cashflowRows.map((row) => ({ month: row.month, expenses: row.expenses })),
+        ...analytics,
         goals,
         bills,
-        recentTransactions: recent
+        upcomingRecurring,
+        recentTransactions: recent,
+        summary: {
+          ...analytics.summary,
+          billTotal: bills.reduce((sum, bill) => sum + bill.amount, 0)
+        }
       });
     } catch (error) {
       next(error);
@@ -75,13 +53,32 @@ router.get(
   }
 );
 
-function normalizeCashflow(rows) {
-  const byMonth: Record<string, any> = {};
-  for (const row of rows) {
-    byMonth[row._id.month] ||= { month: row._id.month, income: 0, expenses: 0 };
-    byMonth[row._id.month][row._id.type === "expense" ? "expenses" : "income"] = row.total;
+router.get(
+  "/report",
+  validate(z.object({
+    query: z.object({
+      startDate: z.coerce.date(),
+      endDate: z.coerce.date(),
+      granularity: z.enum(["month", "quarter", "year"]).default("month")
+    }).refine((value) => value.endDate > value.startDate, { message: "endDate must be after startDate" })
+  })),
+  async (req, res, next) => {
+    try {
+      const { startDate, endDate, granularity } = req.validated.query;
+      const maximumRange = 10 * 366 * 86400000;
+      if (endDate.getTime() - startDate.getTime() > maximumRange) {
+        return res.status(400).json({ message: "Report range cannot exceed 10 years" });
+      }
+      res.json({
+        startDate,
+        endDate,
+        granularity,
+        periods: await buildReport(req.user._id, startDate, endDate, granularity)
+      });
+    } catch (error) {
+      next(error);
+    }
   }
-  return Object.values(byMonth).map((row: any) => ({ ...row, net: row.income - row.expenses }));
-}
+);
 
 export default router;

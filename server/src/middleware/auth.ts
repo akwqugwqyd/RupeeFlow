@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
+import { env } from "../config/env.js";
 
 export async function requireAuth(req, _res, next) {
   try {
@@ -11,7 +12,10 @@ export async function requireAuth(req, _res, next) {
       throw error;
     }
 
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const payload = jwt.verify(token, env().JWT_SECRET, {
+      issuer: "rupeeflow-api",
+      audience: "rupeeflow-web"
+    });
     const user = await User.findById(payload.sub).select("-passwordHash");
     if (!user) {
       const error: any = new Error("User no longer exists");

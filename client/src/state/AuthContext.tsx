@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { createContext, useContext, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 
 type User = {
@@ -25,7 +25,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState(localStorage.getItem("rupeeflow_token"));
   const [user, setUser] = useState(() => {
     const raw = localStorage.getItem("rupeeflow_user");
-    return raw ? JSON.parse(raw) : null;
+    try {
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      localStorage.removeItem("rupeeflow_user");
+      return null;
+    }
   });
 
   async function login(payload, mode = "login") {
@@ -47,6 +52,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem("rupeeflow_user", JSON.stringify(nextUser));
     setUser(nextUser);
   }
+
+  useEffect(() => {
+    window.addEventListener("rupeeflow:unauthorized", logout);
+    return () => window.removeEventListener("rupeeflow:unauthorized", logout);
+  }, []);
 
   const value = useMemo(() => ({ token, user, login, updateUser, logout, isAuthenticated: Boolean(token) }), [token, user]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
