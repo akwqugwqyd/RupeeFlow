@@ -1,13 +1,14 @@
 import cron from "node-cron";
 import { runRecurringTransactions } from "../services/recurring.service.js";
+import { logger } from "../utils/logger.js";
 
 export function startRecurringJob() {
-  cron.schedule("5 0 1 * *", async () => {
+  return cron.schedule("15 0 * * *", async () => {
     try {
       const result = await runRecurringTransactions();
-      console.log(`Recurring transaction job created ${result.created} transactions`);
+      logger.info("recurring.job_succeeded", result);
     } catch (error) {
-      console.error("Recurring transaction job failed", error);
+      logger.error("recurring.job_failed", { message: error instanceof Error ? error.message : String(error) });
     }
   });
 }

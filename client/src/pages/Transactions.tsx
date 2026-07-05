@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { Download, Pencil, Trash2, X } from "lucide-react";
-import { Empty, Input, PageTitle, Panel, Select } from "../components/ui";
+import { Download, Pause, Pencil, Play, Trash2, X } from "lucide-react";
+import { ConfirmDialog, Empty, Input, PageTitle, Panel, Select } from "../components/ui";
 import { api } from "../lib/api";
 import { getCategories } from "../lib/data";
 import { money, todayInput } from "../lib/format";
@@ -14,13 +14,18 @@ const emptyForm = {
   date: todayInput(),
   paymentMethod: "Card",
   note: "",
-  isRecurring: false
+  isRecurring: false,
+  recurringFrequency: "monthly"
 };
 
 const emptyFilters = {
   search: "",
   type: "",
-  category: ""
+  category: "",
+  startDate: "",
+  endDate: "",
+  minAmount: "",
+  maxAmount: ""
 };
 
 export default function Transactions() {
@@ -30,19 +35,28 @@ export default function Transactions() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<any>(emptyForm);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [deleteTarget, setDeleteTarget] = useState<any>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const categoryOptions = useMemo(() => {
     return categories.filter((category) => category.type === "both" || category.type === form.type);
   }, [categories, form.type]);
 
-  async function load(nextFilters = filters) {
+  async function load(nextFilters = filters, nextPage = page) {
     setLoading(true);
     try {
       const [txRes, cats] = await Promise.all([
-        api.get("/transactions", { params: { limit: 100, ...clean(nextFilters) } }),
+        api.get("/transactions", { params: { limit: 20, page: nextPage, ...clean(nextFilters) } }),
         getCategories()
       ]);
       setItems(txRes.data.items);
+      setPage(txRes.data.page);
+      setPages(txRes.data.pages);
+      setTotal(txRes.data.total);
       setCategories(cats);
     } finally {
       setLoading(false);
@@ -55,48 +69,75 @@ export default function Transactions() {
 
   async function applyFilters(event: React.FormEvent) {
     event.preventDefault();
-    await load();
+    await load(filters, 1);
   }
 
   async function clearFilters() {
     setFilters(emptyFilters);
-    await load(emptyFilters);
+    await load(emptyFilters, 1);
   }
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
+    setSaving(true);
     const payload = {
       ...form,
       amount: Number(form.amount),
-      date: form.date?.slice?.(0, 10) || form.date,
-      recurringFrequency: "monthly"
+      date: form.date?.slice?.(0, 10) || form.date
     };
 
-    if (editingId) await api.put(`/transactions/${editingId}`, payload);
-    else await api.post("/transactions", payload);
-
-    toast.success(editingId ? "Transaction updated" : "Transaction added");
-    resetForm();
-    await load();
+    try {
+      if (editingId) await api.put(`/transactions/${editingId}`, payload);
+      else await api.post("/transactions", payload, { headers: { "Idempotency-Key": crypto.randomUUID() } });
+      toast.success(editingId ? "Transaction updated" : "Transaction added");
+      resetForm();
+      await load(filters, page);
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "Could not save transaction");
+    } finally {
+      setSaving(false);
+    }
   }
 
-  async function remove(id: string) {
-    const ok = window.confirm("Delete this transaction?");
-    if (!ok) return;
-    await api.delete(`/transactions/${id}`);
-    toast.success("Transaction deleted");
-    if (editingId === id) resetForm();
-    await load();
+  async function remove() {
+    if (!deleteTarget) return;
+    const previous = items;
+    setDeleting(true);
+    setItems((current) => current.filter((item) => item._id !== deleteTarget._id));
+    try {
+      await api.delete(`/transactions/${deleteTarget._id}`);
+      toast.success("Transaction deleted");
+      if (editingId === deleteTarget._id) resetForm();
+      setDeleteTarget(null);
+      await load(filters, page);
+    } catch {
+      setItems(previous);
+      toast.error("Could not delete transaction");
+    } finally {
+      setDeleting(false);
+    }
   }
 
   async function exportCsv() {
-    const { data } = await api.get("/transactions/export/csv", { responseType: "blob" });
+    const { data } = await api.get("/transactions/export/csv", { responseType: "blob", params: clean(filters) });
     const url = URL.createObjectURL(data);
     const link = document.createElement("a");
     link.href = url;
     link.download = "rupeeflow-transactions.csv";
     link.click();
     URL.revokeObjectURL(url);
+  }
+
+  async function toggleRecurring(tx: any) {
+    const status = tx.recurringStatus === "paused" ? "active" : "paused";
+    setItems((current) => current.map((item) => item._id === tx._id ? { ...item, recurringStatus: status } : item));
+    try {
+      await api.patch(`/transactions/${tx._id}/recurring-status`, { status });
+      toast.success(status === "paused" ? "Recurring schedule paused" : "Recurring schedule resumed");
+    } catch {
+      setItems((current) => current.map((item) => item._id === tx._id ? tx : item));
+      toast.error("Could not update recurring schedule");
+    }
   }
 
   function startEdit(tx: any) {
@@ -109,7 +150,8 @@ export default function Transactions() {
       date: tx.date?.slice(0, 10),
       paymentMethod: tx.paymentMethod || "Card",
       note: tx.note || "",
-      isRecurring: Boolean(tx.isRecurring)
+      isRecurring: Boolean(tx.isRecurring),
+      recurringFrequency: tx.recurringFrequency || "monthly"
     });
   }
 
@@ -160,13 +202,19 @@ export default function Transactions() {
                 <input type="checkbox" checked={form.isRecurring} onChange={(e) => setForm({ ...form, isRecurring: e.target.checked })} />
                 Auto-add monthly as recurring
               </label>
-              <button className="rounded bg-[#4f46e5] px-4 py-2 font-medium text-white">{editingId ? "Save changes" : "Add transaction"}</button>
+              {form.isRecurring && (
+                <Select aria-label="Recurring frequency" value={form.recurringFrequency} onChange={(e) => setForm({ ...form, recurringFrequency: e.target.value })}>
+                  <option value="monthly">Monthly</option>
+                  <option value="yearly">Yearly</option>
+                </Select>
+              )}
+              <button disabled={saving} className="rounded bg-[#4f46e5] px-4 py-2 font-medium text-white disabled:opacity-60">{saving ? "Saving…" : editingId ? "Save changes" : "Add transaction"}</button>
             </form>
           </Panel>
         </div>
 
         <Panel title="Transaction table">
-          <form onSubmit={applyFilters} className="mb-3 grid gap-2 md:grid-cols-[minmax(180px,1fr)_140px_160px_auto]">
+          <form onSubmit={applyFilters} className="mb-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
             <Input placeholder="Keyword" value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} />
             <Select value={filters.type} onChange={(e) => setFilters({ ...filters, type: e.target.value })}>
               <option value="">All types</option>
@@ -177,6 +225,10 @@ export default function Transactions() {
               <option value="">All categories</option>
               {categories.map((category) => <option key={category._id}>{category.name}</option>)}
             </Select>
+            <Input aria-label="Start date" type="date" value={filters.startDate} onChange={(e) => setFilters({ ...filters, startDate: e.target.value })} />
+            <Input aria-label="End date" type="date" value={filters.endDate} onChange={(e) => setFilters({ ...filters, endDate: e.target.value })} />
+            <Input aria-label="Minimum amount" type="number" min="0" placeholder="Min amount" value={filters.minAmount} onChange={(e) => setFilters({ ...filters, minAmount: e.target.value })} />
+            <Input aria-label="Maximum amount" type="number" min="0" placeholder="Max amount" value={filters.maxAmount} onChange={(e) => setFilters({ ...filters, maxAmount: e.target.value })} />
             <div className="flex gap-2">
               <button className="rounded bg-[#111827] px-3 py-2 text-white">Filter</button>
               <button type="button" onClick={clearFilters} className="rounded border border-[#d1d5db] px-3 py-2">Clear</button>
@@ -205,15 +257,16 @@ export default function Transactions() {
                     <td>{tx.category}</td>
                     <td><span className="rounded bg-[#eff6ff] px-2 py-1 text-xs capitalize">{tx.type}</span></td>
                     <td>{tx.paymentMethod}</td>
-                    <td>{tx.isRecurring ? "Yes" : "No"}</td>
+                    <td>{tx.isRecurring ? tx.recurringStatus === "paused" ? "Paused" : `Yes · ${tx.recurringFrequency}` : tx.recurringTemplate ? "Generated" : "No"}</td>
                     <td className={`text-right font-medium ${tx.type === "income" ? "text-[#4f46e5]" : "text-[#b45309]"}`}>{money(tx.amount, "INR")}</td>
                     <td>
                       <div className="flex justify-end gap-2">
+                        {tx.isRecurring && !tx.recurringTemplate && <button type="button" onClick={() => toggleRecurring(tx)} className="inline-flex items-center gap-1 rounded border border-[#d1d5db] px-2 py-1 text-slate-700">{tx.recurringStatus === "paused" ? <Play size={14} /> : <Pause size={14} />}{tx.recurringStatus === "paused" ? "Resume" : "Pause"}</button>}
                         <button type="button" onClick={() => startEdit(tx)} className="inline-flex items-center gap-1 rounded border border-[#d1d5db] px-2 py-1 text-[#4f46e5]">
                           <Pencil size={14} />
                           Edit
                         </button>
-                        <button type="button" onClick={() => remove(tx._id)} className="inline-flex items-center gap-1 rounded border border-[#efcaca] px-2 py-1 text-[#be123c]">
+                        <button type="button" onClick={() => setDeleteTarget(tx)} className="inline-flex items-center gap-1 rounded border border-[#efcaca] px-2 py-1 text-[#be123c]">
                           <Trash2 size={14} />
                           Delete
                         </button>
@@ -226,8 +279,23 @@ export default function Transactions() {
             {loading && <div className="p-5 text-center text-sm text-[#6b7280]">Loading transactions...</div>}
             {!loading && !items.length && <Empty text="No matching transactions." />}
           </div>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3 text-sm text-slate-600">
+            <p>{total} transaction{total === 1 ? "" : "s"} · Page {page} of {pages}</p>
+            <div className="flex gap-2">
+              <button type="button" disabled={page <= 1 || loading} onClick={() => load(filters, page - 1)} className="rounded border border-slate-300 px-3 py-1.5 disabled:opacity-40">Previous</button>
+              <button type="button" disabled={page >= pages || loading} onClick={() => load(filters, page + 1)} className="rounded border border-slate-300 px-3 py-1.5 disabled:opacity-40">Next</button>
+            </div>
+          </div>
         </Panel>
       </div>
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        title="Delete transaction?"
+        description={`This permanently removes ${deleteTarget?.merchant || "this transaction"} from analytics and budget totals.`}
+        onCancel={() => !deleting && setDeleteTarget(null)}
+        onConfirm={remove}
+        busy={deleting}
+      />
     </div>
   );
 }

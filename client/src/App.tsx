@@ -7,6 +7,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Settings from "./pages/Settings";
 import Transactions from "./pages/Transactions";
+import Reports from "./pages/Reports";
 import { useAuth } from "./state/AuthContext";
 
 function Protected({ children }: { children: ReactNode }) {
@@ -28,6 +29,7 @@ export default function App() {
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/transactions" element={<Transactions />} />
                 <Route path="/budgets" element={<Budgets />} />
+                <Route path="/reports" element={<Reports />} />
                 <Route path="/ai-chat" element={<AiChat />} />
                 <Route path="/settings" element={<Settings />} />
               </Routes>

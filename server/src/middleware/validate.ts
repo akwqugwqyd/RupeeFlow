@@ -1,3 +1,5 @@
+import { AppError } from "../utils/errors.js";
+
 export function validate(schema) {
   return (req, _res, next) => {
     const result = schema.safeParse({
@@ -10,10 +12,7 @@ export function validate(schema) {
       const firstIssue = result.error.issues[0];
       const field = firstIssue?.path?.filter((part) => part !== "body").join(".");
       const message = field ? `${field}: ${firstIssue.message}` : "Validation failed";
-      const error: any = new Error(message);
-      error.statusCode = 400;
-      error.details = result.error.flatten();
-      return next(error);
+      return next(new AppError(message, 400, "VALIDATION_ERROR", result.error.flatten()));
     }
 
     req.validated = result.data;

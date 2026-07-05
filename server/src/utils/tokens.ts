@@ -1,7 +1,10 @@
 import jwt from "jsonwebtoken";
+import { env } from "../config/env.js";
 
 export function signToken(user) {
-  return jwt.sign({ sub: user._id.toString(), email: user.email }, process.env.JWT_SECRET as string, {
-    expiresIn: (process.env.JWT_EXPIRES_IN || "7d") as any
+  return jwt.sign({ sub: user._id.toString() }, env().JWT_SECRET, {
+    expiresIn: env().JWT_EXPIRES_IN as any,
+    issuer: "rupeeflow-api",
+    audience: "rupeeflow-web"
   });
 }

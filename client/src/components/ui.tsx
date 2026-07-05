@@ -21,7 +21,44 @@ export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
 }
 
 export function Empty({ text }: { text: string }) {
-  return <div className="rounded-xl border border-dashed border-[#cbd5e1] bg-[#f8fafc] p-5 text-center text-sm text-[#64748b]">{text}</div>;
+  return <div role="status" className="rounded-xl border border-dashed border-[#cbd5e1] bg-[#f8fafc] p-5 text-center text-sm text-[#64748b]">{text}</div>;
+}
+
+export function ErrorState({ message, retry }: { message: string; retry?: () => void }) {
+  return (
+    <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-800">
+      <p className="font-bold">We couldn’t load this data</p>
+      <p className="mt-1">{message}</p>
+      {retry && <button type="button" onClick={retry} className="mt-3 rounded-lg border border-red-300 bg-white px-3 py-2">Try again</button>}
+    </div>
+  );
+}
+
+export function Skeleton({ className = "" }: { className?: string }) {
+  return <div aria-hidden="true" className={`animate-pulse rounded-lg bg-slate-200 ${className}`} />;
+}
+
+export function ConfirmDialog({ open, title, description, onCancel, onConfirm, busy = false }: {
+  open: boolean;
+  title: string;
+  description: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+  busy?: boolean;
+}) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4" role="presentation" onMouseDown={onCancel}>
+      <div role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+        <h2 id="confirm-title" className="text-lg font-extrabold">{title}</h2>
+        <p className="mt-2 text-sm text-slate-600">{description}</p>
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" onClick={onCancel} disabled={busy} className="rounded-lg border border-slate-300 px-4 py-2">Cancel</button>
+          <button type="button" onClick={onConfirm} disabled={busy} className="rounded-lg bg-red-600 px-4 py-2 text-white disabled:opacity-60">{busy ? "Deleting…" : "Delete"}</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function PageTitle({ title, subtitle }: { title: string; subtitle: string }) {
