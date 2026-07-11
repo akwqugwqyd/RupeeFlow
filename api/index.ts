@@ -1,16 +1,33 @@
-import { createApp } from "../server/src/app.js";
-import { connectDb } from "../server/src/config/db.js";
-import { runRecurringTransactions } from "../server/src/services/recurring.service.js";
+let appPromise: Promise<any> | undefined;
+let dbPromise: Promise<any> | undefined;
+let runRecurringTransactionsPromise: Promise<() => Promise<any>> | undefined;
 
-const app = createApp();
-let dbPromise: ReturnType<typeof connectDb> | undefined;
+async function loadApp() {
+  if (!appPromise) {
+    appPromise = import("../server/src/app.js").then(({ createApp }) => createApp());
+  }
+
+  return appPromise;
+}
+
+async function loadRunRecurringTransactions() {
+  if (!runRecurringTransactionsPromise) {
+    runRecurringTransactionsPromise = import("../server/src/services/recurring.service.js").then(
+      ({ runRecurringTransactions }) => runRecurringTransactions
+    );
+  }
+
+  return runRecurringTransactionsPromise;
+}
 
 function ensureDb() {
   if (!dbPromise) {
-    dbPromise = connectDb().catch((error) => {
-      dbPromise = undefined;
-      throw error;
-    });
+    dbPromise = import("../server/src/config/db.js")
+      .then(({ connectDb }) => connectDb())
+      .catch((error) => {
+        dbPromise = undefined;
+        throw error;
+      });
   }
   return dbPromise;
 }
@@ -44,10 +61,12 @@ export default async function handler(request: any, response: any) {
         return response.status(401).json({ message: "Unauthorized" });
       }
 
+      const runRecurringTransactions = await loadRunRecurringTransactions();
       const result = await runRecurringTransactions();
       return response.json(result);
     }
 
+    const app = await loadApp();
     return app(request, response);
   } catch (error) {
     console.error("Vercel function failed", error);
