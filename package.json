@@ -1,0 +1,14 @@
+{
+  "name": "rupeeflow",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "setup": "npm --prefix client ci && npm --prefix server ci",
+    "dev": "node scripts/dev.mjs",
+    "build": "npm --prefix server run build && npm --prefix client run build",
+    "typecheck": "npm --prefix server run typecheck && npm --prefix client run typecheck",
+    "test": "npm --prefix server test",
+    "test:e2e": "npm --prefix server run test:e2e"
+  }
+}

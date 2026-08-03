@@ -18,7 +18,8 @@ const transactionSchema = new mongoose.Schema(
     recurringTemplate: { type: mongoose.Schema.Types.ObjectId, ref: "Transaction" },
     lastRecurringRun: { type: Date },
     generationKey: { type: String },
-    idempotencyKey: { type: String, maxlength: 128 }
+    idempotencyKey: { type: String, maxlength: 128 },
+    importFingerprint: { type: String, maxlength: 64 }
   },
   { timestamps: true }
 );
@@ -27,7 +28,48 @@ transactionSchema.index({ user: 1, date: -1 });
 transactionSchema.index({ user: 1, category: 1, date: -1 });
 transactionSchema.index({ user: 1, type: 1, date: -1 });
 transactionSchema.index({ generationKey: 1 }, { unique: true, sparse: true });
-transactionSchema.index({ user: 1, idempotencyKey: 1 }, { unique: true, sparse: true });
+transactionSchema.index(
+  { user: 1, idempotencyKey: 1 },
+  { unique: true, partialFilterExpression: { idempotencyKey: { $type: "string" } } }
+);
+transactionSchema.index(
+  { user: 1, importFingerprint: 1 },
+  { unique: true, partialFilterExpression: { importFingerprint: { $type: "string" } } }
+);
 transactionSchema.index({ user: 1, isRecurring: 1, recurringStatus: 1 });
 
-export default mongoose.model("Transaction", transactionSchema);
+const Transaction = mongoose.model("Transaction", transactionSchema);
+
+const legacyOptionalIndexNames = ["user_1_idempotencyKey_1", "user_1_importFingerprint_1"];
+
+export async function ensureTransactionIndexes() {
+  let indexes;
+  try {
+    indexes = await Transaction.collection.indexes();
+  } catch (error) {
+    if (mongoErrorCode(error) === 26) {
+      await Transaction.createIndexes();
+      return;
+    }
+    throw error;
+  }
+
+  for (const indexName of legacyOptionalIndexNames) {
+    const legacyIndex = indexes.find((index) => index.name === indexName && index.sparse === true);
+    if (!legacyIndex) continue;
+    try {
+      await Transaction.collection.dropIndex(indexName);
+    } catch (error) {
+      if (mongoErrorCode(error) !== 27) throw error;
+    }
+  }
+
+  await Transaction.createIndexes();
+}
+
+function mongoErrorCode(error: unknown) {
+  if (!error || typeof error !== "object" || !("code" in error)) return undefined;
+  return Number(error.code);
+}
+
+export default Transaction;

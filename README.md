@@ -1,103 +1,125 @@
 # RupeeFlow
 
-RupeeFlow is a personal finance web app I built to track income, expenses, budgets, and recurring transactions in one place.
+I built RupeeFlow to make everyday expense tracking less manual. It combines the usual personal-finance tools—transactions, budgets, recurring payments, and reports—with an AI assistant that only answers from the user's own finance data.
 
-It also includes an AI assistant that can answer simple questions about the user's spending based on the data stored in the app.
+The project is designed for Indian spending habits, so the UI uses INR and recognises common payment methods such as UPI, cards, wallets, and bank transfers.
 
-## Features
+## What it can do
 
-- User registration and login
-- Add, edit, delete, and filter transactions
-- Track income and expenses
-- Category-wise spending
-- Monthly budgets
-- Recurring transactions
-- Dashboard with charts and summaries
-- CSV export
-- AI-based finance insights
+- Track, edit, filter, and export income and expenses
+- Import a bank statement from CSV with column mapping and a review step
+- Detect duplicate rows before an import is saved
+- Turn text such as `Paid ₹450 to Zomato via UPI yesterday` into a transaction draft
+- Track monthly budgets and warn when spending is likely to cross a limit
+- Generate dashboards, category breakdowns, and monthly comparisons
+- Create and pause recurring monthly or yearly transactions
+- Answer finance questions with calculation details and links to the supporting transactions
+- Continue working without an OpenAI key by using deterministic fallback rules
 
-## Tech Stack
+## Stack
 
-- React
-- TypeScript
-- Tailwind CSS
-- Node.js
-- Express
-- MongoDB
-- Mongoose
-- JWT authentication
-- OpenAI API
-- Vercel
+- React 19, TypeScript, Vite, Tailwind CSS, and Recharts
+- Node.js, Express 5, TypeScript, and Zod
+- MongoDB and Mongoose
+- OpenAI API for structured transaction extraction and grounded finance responses
+- Vercel for the web client and serverless API
 
-## Project Structure
+## Project layout
 
 ```text
-client/   React frontend
-server/   Express backend
-api/      Vercel serverless API entry
+api/                 Vercel serverless entry point
+client/              React application
+scripts/             Root development scripts
+server/              Express API, models, services, and tests
+package.json         Commands shared by the whole repository
+vercel.json          Vercel build, route, function, and cron settings
 ```
 
-## Running Locally
+The browser calls `/api` in both environments. During local development Vite proxies those requests to the Express server on port 5000. On Vercel, the same path is routed to `api/index.ts`.
 
-Install and start the backend:
+## Run it locally
+
+You need Node.js 22 or newer and a MongoDB connection string. The OpenAI key is optional.
+
+Install both applications:
 
 ```bash
-cd server
-npm install
-npm run dev
+npm run setup
 ```
 
-Install and start the frontend in another terminal:
-
-```bash
-cd client
-npm install
-npm run dev
-```
-
-The frontend will run at:
-
-```text
-http://localhost:5173
-```
-
-## Environment Variables
-
-Create a `.env` file inside the `server` folder.
+Copy `server/.env.example` to `server/.env` and add your values:
 
 ```env
+NODE_ENV=development
 PORT=5000
 MONGODB_URI=your_mongodb_connection_string
-JWT_SECRET=your_long_jwt_secret
+JWT_SECRET=use_a_random_value_at_least_32_characters_long
 JWT_EXPIRES_IN=7d
 CLIENT_URL=http://localhost:5173
-OPENAI_API_KEY=your_openai_key_optional
+OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4o-mini
-NODE_ENV=development
+LOG_LEVEL=info
 ```
 
-For local frontend development, create `client/.env` if needed:
+Start the client and API together:
 
-```env
-VITE_API_URL=http://localhost:5000/api
+```bash
+npm run dev
 ```
 
-## Deployment
+Then open:
 
-The project is deployed on Vercel as a single project.
+- App: http://localhost:5173
+- API health check: http://localhost:5000/api/health
 
-Important Vercel settings:
+On Windows PowerShell, use `npm.cmd` instead of `npm` if the execution policy blocks `npm.ps1`:
 
-- Root Directory: leave empty
-- Build Command: `npm --prefix client run build`
-- Output Directory: `client/dist`
-- Install Command: `npm --prefix client ci && npm --prefix server ci`
+```powershell
+npm.cmd run setup
+npm.cmd run dev
+```
 
-Add the required environment variables in Vercel before deploying.
+If the client opens but requests fail, check the API health URL first. The usual causes are an invalid `server/.env`, a MongoDB Atlas IP-access rule, or another process already using port 5000.
 
-## Notes
+## Checks
 
-- Do not commit `.env` files.
-- Use a strong `JWT_SECRET` in production.
-- Make sure MongoDB Atlas allows access from Vercel.
+These are the same commands I run before deploying:
 
+```bash
+npm run typecheck
+npm test
+npm run build
+```
+
+There is also an end-to-end smoke test. It creates a uniquely named temporary database using `MONGODB_URI`, tests the full API flow, and deletes that database when it finishes:
+
+```bash
+npm run test:e2e
+```
+
+## Deploy on Vercel
+
+This repository is deployed as one Vercel project. The client is built into `client/dist`, and requests under `/api` are handled by the serverless function.
+
+1. Push the repository to GitHub.
+2. In Vercel, choose **Add New → Project** and import the repository.
+3. Leave the root directory at the repository root. `vercel.json` already supplies the install command, build command, output directory, rewrites, function duration, and daily cron.
+4. Add the following environment variables before the first deployment:
+
+```text
+NODE_ENV=production
+MONGODB_URI=your_production_mongodb_connection_string
+JWT_SECRET=your_production_secret_of_at_least_32_characters
+JWT_EXPIRES_IN=7d
+CLIENT_URL=https://your-project.vercel.app
+OPENAI_API_KEY=optional
+OPENAI_MODEL=gpt-4o-mini
+CRON_SECRET=a_separate_random_secret
+LOG_LEVEL=info
+```
+
+5. Deploy, then verify `/api/health`, registration, CSV import, and one AI-chat question.
+
+MongoDB Atlas must accept connections from the deployed function. Keep development and production databases separate, and never commit `.env` files or credentials.
+
+Pushes to the production branch create production deployments. Other branches and pull requests receive Vercel preview deployments.
