@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { Download, Pause, Pencil, Play, Trash2, X } from "lucide-react";
+import { Download, FileUp, Pause, Pencil, Play, Sparkles, Trash2, X } from "lucide-react";
 import { ConfirmDialog, Empty, Input, PageTitle, Panel, Select } from "../components/ui";
+import CsvImportPanel from "../components/CsvImportPanel";
 import { api } from "../lib/api";
 import { getCategories } from "../lib/data";
 import { money, todayInput } from "../lib/format";
@@ -25,13 +26,17 @@ const emptyFilters = {
   startDate: "",
   endDate: "",
   minAmount: "",
-  maxAmount: ""
+  maxAmount: "",
+  transactionId: ""
 };
 
 export default function Transactions() {
   const [items, setItems] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
-  const [filters, setFilters] = useState(emptyFilters);
+  const [filters, setFilters] = useState(() => ({
+    ...emptyFilters,
+    transactionId: new URLSearchParams(window.location.search).get("transactionId") || ""
+  }));
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<any>(emptyForm);
   const [loading, setLoading] = useState(false);
@@ -41,6 +46,10 @@ export default function Transactions() {
   const [total, setTotal] = useState(0);
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
   const [deleting, setDeleting] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [smartText, setSmartText] = useState("");
+  const [smartLoading, setSmartLoading] = useState(false);
+  const [smartResult, setSmartResult] = useState<any>(null);
 
   const categoryOptions = useMemo(() => {
     return categories.filter((category) => category.type === "both" || category.type === form.type);
@@ -74,6 +83,7 @@ export default function Transactions() {
 
   async function clearFilters() {
     setFilters(emptyFilters);
+    window.history.replaceState({}, "", window.location.pathname);
     await load(emptyFilters, 1);
   }
 
@@ -96,6 +106,34 @@ export default function Transactions() {
       toast.error(error.response?.data?.message || "Could not save transaction");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function fillFromDescription() {
+    if (!smartText.trim()) return;
+    setSmartLoading(true);
+    try {
+      const { data } = await api.post("/ai/categorize", { text: smartText.trim() });
+      const eligibleCategories = categories.filter((category) => category.type === "both" || category.type === data.type);
+      const category = eligibleCategories.find((item) => item.name.toLowerCase() === String(data.category).toLowerCase())?.name
+        || eligibleCategories.find((item) => item.name === (data.type === "income" ? "Salary" : "Other"))?.name
+        || eligibleCategories[0]?.name;
+      setForm((current) => ({
+        ...current,
+        type: data.type,
+        amount: data.amount || "",
+        category,
+        merchant: data.merchant === "Unknown merchant" ? "" : data.merchant,
+        date: data.date || todayInput(),
+        paymentMethod: data.paymentMethod,
+        note: data.note || smartText
+      }));
+      setSmartResult(data);
+      toast.success("Review the suggested fields, then save");
+    } catch (error: any) {
+      toast.error(error.response?.data?.error?.message || error.response?.data?.message || "Could not understand that transaction");
+    } finally {
+      setSmartLoading(false);
     }
   }
 
@@ -158,22 +196,46 @@ export default function Transactions() {
   function resetForm() {
     setEditingId(null);
     setForm(emptyForm);
+    setSmartText("");
+    setSmartResult(null);
   }
 
   return (
     <div className="px-4 py-4 sm:px-6">
       <div className="mb-3 flex flex-col justify-between gap-3 md:flex-row md:items-end">
-        <PageTitle title="Transactions" subtitle="Add, edit, delete, filter, mark recurring, and export entries." />
-        <button type="button" onClick={exportCsv} className="inline-flex items-center justify-center gap-2 rounded bg-[#111827] px-4 py-2 text-sm font-medium text-white">
-          <Download size={16} />
-          Export CSV
-        </button>
+        <PageTitle title="Transactions" subtitle="Add naturally, import statements, review, filter, and export entries." />
+        <div className="flex gap-2">
+          <button type="button" onClick={() => setShowImport((value) => !value)} className="inline-flex items-center justify-center gap-2 rounded border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-700">
+            <FileUp size={16} /> Import CSV
+          </button>
+          <button type="button" onClick={exportCsv} className="inline-flex items-center justify-center gap-2 rounded bg-[#111827] px-4 py-2 text-sm font-medium text-white">
+            <Download size={16} /> Export CSV
+          </button>
+        </div>
       </div>
+
+      {showImport && <div className="mb-4"><CsvImportPanel onClose={() => setShowImport(false)} onImported={() => load(filters, 1)} /></div>}
 
       <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
         <div>
           <Panel title={editingId ? "Edit transaction" : "Add transaction"} action={editingId && <button type="button" onClick={resetForm} className="grid size-8 place-items-center rounded hover:bg-[#eff6ff]" title="Cancel edit"><X size={16} /></button>}>
             <form onSubmit={save} className="grid gap-2">
+              {!editingId && (
+                <div className="mb-2 rounded-xl border border-indigo-100 bg-indigo-50 p-3">
+                  <label className="mb-2 block text-xs font-extrabold uppercase tracking-wide text-indigo-700">Describe it naturally</label>
+                  <div className="flex gap-2">
+                    <Input value={smartText} maxLength={200} onChange={(event) => setSmartText(event.target.value)} placeholder="Paid ₹450 to Zomato via UPI yesterday" className="bg-white" />
+                    <button type="button" disabled={smartLoading || !smartText.trim()} onClick={fillFromDescription} className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-indigo-600 px-3 text-sm font-bold text-white disabled:opacity-50">
+                      <Sparkles size={15} /> {smartLoading ? "Reading…" : "Fill"}
+                    </button>
+                  </div>
+                  {smartResult && (
+                    <p className="mt-2 text-xs text-indigo-800">
+                      {smartResult.confidence} confidence{smartResult.ambiguities?.length ? ` · Review: ${smartResult.ambiguities.join(", ")}` : " · All key fields detected"}
+                    </p>
+                  )}
+                </div>
+              )}
               <Select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value, category: e.target.value === "income" ? "Salary" : "Food" })}>
                 <option value="expense">Expense</option>
                 <option value="income">Income</option>

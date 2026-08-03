@@ -6,6 +6,12 @@ import Transaction from "../models/Transaction.js";
 import Category from "../models/Category.js";
 import { AppError } from "../utils/errors.js";
 import { dueOccurrences, nextOccurrence, runRecurringTransactions } from "../services/recurring.service.js";
+import {
+  buildCsvCandidates,
+  transactionFingerprint,
+  type CsvMapping,
+  type ImportedTransaction
+} from "../services/csv-import.service.js";
 
 const router = express.Router();
 
@@ -32,7 +38,8 @@ const listSchema = z.object({
     minAmount: z.coerce.number().min(0).optional(),
     maxAmount: z.coerce.number().min(0).optional(),
     startDate: z.coerce.date().optional(),
-    endDate: z.coerce.date().optional()
+    endDate: z.coerce.date().optional(),
+    transactionId: z.string().regex(/^[a-f\d]{24}$/i, "Invalid record id").optional()
   }).superRefine((value, context) => {
     if (value.minAmount !== undefined && value.maxAmount !== undefined && value.minAmount > value.maxAmount) {
       context.addIssue({ code: "custom", path: ["maxAmount"], message: "Maximum amount must be at least the minimum amount" });
@@ -45,6 +52,26 @@ const listSchema = z.object({
 
 const objectId = z.string().regex(/^[a-f\d]{24}$/i, "Invalid record id");
 const idSchema = z.object({ params: z.object({ id: objectId }) });
+const csvMappingSchema = z.object({
+  date: z.string().max(120).optional(),
+  merchant: z.string().max(120).optional(),
+  amount: z.string().max(120).optional(),
+  debit: z.string().max(120).optional(),
+  credit: z.string().max(120).optional(),
+  type: z.string().max(120).optional(),
+  category: z.string().max(120).optional(),
+  paymentMethod: z.string().max(120).optional(),
+  note: z.string().max(120).optional()
+});
+const importTransactionBody = transactionBody.pick({
+  type: true,
+  amount: true,
+  category: true,
+  merchant: true,
+  note: true,
+  date: true,
+  paymentMethod: true
+});
 
 router.use(requireAuth);
 
@@ -87,6 +114,112 @@ router.post("/", validate(z.object({ body: transactionBody })), async (req, res,
     next(error);
   }
 });
+
+router.post(
+  "/import/preview",
+  validate(z.object({ body: z.object({ csv: z.string().min(1).max(200_000), mapping: csvMappingSchema.optional() }) })),
+  async (req, res, next) => {
+    try {
+      const categories = await Category.find({ user: req.user._id }).select("name type").lean();
+      let preview;
+      try {
+        preview = buildCsvCandidates(
+          req.validated.body.csv,
+          req.validated.body.mapping as CsvMapping | undefined,
+          categories as Array<{ name: string; type: "income" | "expense" | "both" }>
+        );
+      } catch (error) {
+        throw new AppError(error instanceof Error ? error.message : "Could not parse CSV", 400, "INVALID_CSV");
+      }
+
+      const valid = preview.candidates.filter((candidate) => candidate.transaction && candidate.fingerprint);
+      if (valid.length) {
+        const dates = valid.map((candidate) => new Date(candidate.transaction!.date).getTime());
+        const start = new Date(Math.min(...dates));
+        const end = new Date(Math.max(...dates) + 86400000);
+        const existing = await Transaction.find({ user: req.user._id, date: { $gte: start, $lt: end } })
+          .select("date type amount merchant importFingerprint")
+          .lean();
+        const existingFingerprints = new Set(existing.map((item) => item.importFingerprint || transactionFingerprint({
+          date: item.date,
+          type: item.type,
+          amount: item.amount,
+          merchant: item.merchant || "Imported transaction"
+        })));
+        for (const candidate of valid) {
+          if (!candidate.duplicate && existingFingerprints.has(candidate.fingerprint!)) {
+            candidate.duplicate = true;
+            candidate.duplicateReason = "account";
+          }
+        }
+      }
+
+      const invalid = preview.candidates.filter((candidate) => candidate.errors.length > 0).length;
+      const duplicates = preview.candidates.filter((candidate) => candidate.duplicate).length;
+      res.json({
+        ...preview,
+        summary: {
+          total: preview.candidates.length,
+          invalid,
+          duplicates,
+          ready: preview.candidates.length - invalid - duplicates
+        }
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.post(
+  "/import/commit",
+  validate(z.object({ body: z.object({ transactions: z.array(importTransactionBody).min(1).max(500) }) })),
+  async (req, res, next) => {
+    try {
+      const categories = await Category.find({ user: req.user._id }).select("name type").lean();
+      const categoryMap = new Map(categories.map((category) => [category.name.toLowerCase(), category]));
+      const prepared: Array<Omit<ImportedTransaction, "date"> & { date: Date; importFingerprint: string }> = [];
+      const seen = new Set<string>();
+
+      for (const body of req.validated.body.transactions) {
+        const category = categoryMap.get(body.category.toLowerCase());
+        if (!category || (category.type !== "both" && category.type !== body.type)) {
+          throw new AppError(`Category cannot be used for ${body.type} transactions: ${body.category}`, 400, "CATEGORY_TYPE_MISMATCH");
+        }
+        const normalized = { ...body, category: category.name, date: body.date };
+        const fingerprint = transactionFingerprint(normalized);
+        if (seen.has(fingerprint)) continue;
+        seen.add(fingerprint);
+        prepared.push({ ...normalized, importFingerprint: fingerprint });
+      }
+
+      const dates = prepared.map((item) => item.date.getTime());
+      const existing = prepared.length ? await Transaction.find({
+        user: req.user._id,
+        date: { $gte: new Date(Math.min(...dates)), $lt: new Date(Math.max(...dates) + 86400000) }
+      }).select("date type amount merchant importFingerprint").lean() : [];
+      const existingFingerprints = new Set(existing.map((item) => item.importFingerprint || transactionFingerprint({
+        date: item.date,
+        type: item.type,
+        amount: item.amount,
+        merchant: item.merchant || "Imported transaction"
+      })));
+      const toImport = prepared.filter((item) => !existingFingerprints.has(item.importFingerprint));
+      if (toImport.length) {
+        await Transaction.bulkWrite(toImport.map((item) => ({
+          updateOne: {
+            filter: { user: req.user._id, importFingerprint: item.importFingerprint },
+            update: { $setOnInsert: { ...item, user: req.user._id, tags: ["csv-import"], isRecurring: false } },
+            upsert: true
+          }
+        })), { ordered: false });
+      }
+      res.status(201).json({ imported: toImport.length, skipped: req.validated.body.transactions.length - toImport.length });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
 
 router.put("/:id", validate(idSchema.extend({ body: transactionBody.partial() })), async (req, res, next) => {
   try {
@@ -204,8 +337,9 @@ function escapeRegExp(value: string) {
 }
 
 function buildFilter(userId, query) {
-  const { type, category, search, minAmount, maxAmount, startDate, endDate } = query;
+  const { type, category, search, minAmount, maxAmount, startDate, endDate, transactionId } = query;
   const filter: any = { user: userId };
+  if (transactionId) filter._id = transactionId;
   if (type) filter.type = type;
   if (category) filter.category = category;
   if (minAmount !== undefined || maxAmount !== undefined) {

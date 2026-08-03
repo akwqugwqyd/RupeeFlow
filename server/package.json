@@ -9,7 +9,8 @@
     "seed": "tsx src/scripts/seed.ts",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/**/*.test.ts"
+    "test": "tsx --test src/**/*.test.ts",
+    "test:e2e": "tsx src/scripts/e2e-smoke.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

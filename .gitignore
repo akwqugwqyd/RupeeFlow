@@ -2,10 +2,9 @@ node_modules
 dist
 .env
 .env.local
+.vercel
 coverage
 *.log
 *.tsbuildinfo
-.dockerignore
-docker-compose.yml
-server/Dockerfile
-client/Dockerfile
+.DS_Store
+Thumbs.db

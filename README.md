@@ -1,225 +1,125 @@
 # RupeeFlow
 
-RupeeFlow is a production-oriented personal finance platform for tracking cash flow, budgets, recurring transactions, reports, and data-grounded AI insights.
+I built RupeeFlow to make everyday expense tracking less manual. It combines the usual personal-finance tools—transactions, budgets, recurring payments, and reports—with an AI assistant that only answers from the user's own finance data.
 
-## What It Does
+The project is designed for Indian spending habits, so the UI uses INR and recognises common payment methods such as UPI, cards, wallets, and bank transfers.
 
-- Register and log in with JWT-based authentication
-- Add, edit, delete, filter, and export income/expense transactions
-- Manage predefined and custom categories
-- Mark transactions as recurring and auto-create them monthly with a cron job
-- Set monthly category budgets and see usage progress
-- View a dashboard with income, expenses, savings rate, category charts, trends, and recent activity
-- Ask the AI finance assistant questions about spending, budgets, and month-over-month changes
-- Detect projected budget overruns and unusual category spending
-- View deterministic monthly, quarterly, and yearly report data
-- Preview, pause, and resume date-anchored monthly or yearly recurring transactions
-- Update profile details such as monthly income target
-- Use Indian Rupees as the app-wide currency
+## What it can do
 
-## Tech Stack
+- Track, edit, filter, and export income and expenses
+- Import a bank statement from CSV with column mapping and a review step
+- Detect duplicate rows before an import is saved
+- Turn text such as `Paid ₹450 to Zomato via UPI yesterday` into a transaction draft
+- Track monthly budgets and warn when spending is likely to cross a limit
+- Generate dashboards, category breakdowns, and monthly comparisons
+- Create and pause recurring monthly or yearly transactions
+- Answer finance questions with calculation details and links to the supporting transactions
+- Continue working without an OpenAI key by using deterministic fallback rules
 
-**Frontend**
+## Stack
 
-- React
-- TypeScript
-- Tailwind CSS
-- Vite
-- Recharts
+- React 19, TypeScript, Vite, Tailwind CSS, and Recharts
+- Node.js, Express 5, TypeScript, and Zod
+- MongoDB and Mongoose
+- OpenAI API for structured transaction extraction and grounded finance responses
+- Vercel for the web client and serverless API
 
-**Backend**
-
-- Node.js
-- Express
-- TypeScript
-- MongoDB + Mongoose
-- JWT auth
-- OpenAI API
-- node-cron
-
-## Project Structure
+## Project layout
 
 ```text
-client/
-  src/components/  reusable accessible UI
-  src/hooks/       async state and reusable React behavior
-  src/lib/         API client and typed domain API
-  src/pages/       route-level screens
-server/
-  src/config/      validated environment and database lifecycle
-  src/middleware/  authentication, validation, request context, errors
-  src/models/      Mongoose schemas and indexes
-  src/routes/      HTTP contracts and ownership boundaries
-  src/services/    analytics and recurring domain logic
-  src/utils/       deterministic finance functions, logging, tokens
+api/                 Vercel serverless entry point
+client/              React application
+scripts/             Root development scripts
+server/              Express API, models, services, and tests
+package.json         Commands shared by the whole repository
+vercel.json          Vercel build, route, function, and cron settings
 ```
 
-All financial queries are scoped by the authenticated user ID. Route validation is performed before database access, while shared services own calculations used by dashboards and reports.
+The browser calls `/api` in both environments. During local development Vite proxies those requests to the Express server on port 5000. On Vercel, the same path is routed to `api/index.ts`.
 
-There are no root-level npm dependencies. Run frontend and backend commands from their own folders.
+## Run it locally
 
-## Environment Variables
+You need Node.js 22 or newer and a MongoDB connection string. The OpenAI key is optional.
 
-Create `server/.env` from `server/.env.example`.
+Install both applications:
+
+```bash
+npm run setup
+```
+
+Copy `server/.env.example` to `server/.env` and add your values:
 
 ```env
+NODE_ENV=development
 PORT=5000
-MONGODB_URI=mongodb+srv://USER:PASSWORD@cluster-host/rupeeflow?retryWrites=true&w=majority
-JWT_SECRET=replace-this-with-a-long-random-secret
+MONGODB_URI=your_mongodb_connection_string
+JWT_SECRET=use_a_random_value_at_least_32_characters_long
 JWT_EXPIRES_IN=7d
 CLIENT_URL=http://localhost:5173
-OPENAI_API_KEY=your_openai_key_optional
+OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4o-mini
 LOG_LEVEL=info
-NODE_ENV=development
 ```
 
-Create `client/.env` from `client/.env.example` when deploying or when the API is not served from the same origin.
-
-```env
-VITE_API_URL=http://localhost:5000/api
-```
-
-For local Vite development, the app also works through the `/api` proxy.
-
-## Run Locally
-
-Start the backend:
+Start the client and API together:
 
 ```bash
-cd server
-npm install
 npm run dev
 ```
 
-Start the frontend in another terminal:
+Then open:
+
+- App: http://localhost:5173
+- API health check: http://localhost:5000/api/health
+
+On Windows PowerShell, use `npm.cmd` instead of `npm` if the execution policy blocks `npm.ps1`:
+
+```powershell
+npm.cmd run setup
+npm.cmd run dev
+```
+
+If the client opens but requests fail, check the API health URL first. The usual causes are an invalid `server/.env`, a MongoDB Atlas IP-access rule, or another process already using port 5000.
+
+## Checks
+
+These are the same commands I run before deploying:
 
 ```bash
-cd client
-npm install
-npm run dev
-```
-
-Open:
-
-```text
-http://localhost:5173
-```
-
-## Seed Demo Data
-
-After MongoDB is connected:
-
-```bash
-cd server
-npm run seed
-```
-
-Demo account:
-
-```text
-Email: demo@rupeeflow.app
-Password: password123
-```
-
-## Build Checks
-
-Frontend:
-
-```bash
-cd client
-npm run build
-```
-
-Backend:
-
-```bash
-cd server
-npm run build
+npm run typecheck
 npm test
+npm run build
 ```
 
-## Finance Calculation Rules
-
-- Transaction date ranges are half-open: `start <= date < end`. Date-only values are stored and grouped consistently in UTC; the default calendar month is derived in `Asia/Kolkata`.
-- Currency totals are rounded to two decimals at service boundaries.
-- Savings rate is `(income - expenses) / income × 100`; it is `0` when no income is recorded.
-- Month-over-month percentage is `null` when the prior value is zero, because no honest percentage baseline exists.
-- Budget projection is `spend / elapsed-month ratio`. Status is `over`, `at_risk`, `near`, or `healthy`.
-- Unusual spending means current category spend is over 150% of its prior three-month monthly average.
-- Recurrences retain their original day; dates such as the 31st clamp to the last day of shorter months without drifting.
-- Generated recurrence keys are unique, making retries safe and preventing duplicate booked transactions.
-
-The calculation edge cases are covered in `server/src/**/*.test.ts`.
-
-## API Overview
-
-All routes except registration, login, and health require `Authorization: Bearer <token>`.
-
-| Route | Purpose |
-| --- | --- |
-| `GET/POST /api/transactions` | Filtered pagination and idempotent creation |
-| `PUT/DELETE /api/transactions/:id` | Ownership-scoped update/delete |
-| `GET /api/transactions/export/csv` | Filtered, formula-injection-safe CSV |
-| `GET /api/transactions/recurring/preview` | Upcoming recurrence dates |
-| `PATCH /api/transactions/:id/recurring-status` | Pause or resume a schedule |
-| `GET /api/analytics/overview?month=YYYY-MM` | Dashboard analytics |
-| `GET /api/analytics/report` | Monthly, quarterly, or yearly period totals |
-| `GET/POST /api/budgets` | Budget limits, burn rate, projection, suggestions |
-| `POST /api/ai/chat` | Grounded finance Q&A |
-
-Transaction filters support `page`, `limit`, `type`, `category`, `search`, `minAmount`, `maxAmount`, `startDate`, and `endDate`.
-
-## AI Behavior and Privacy
-
-The assistant first runs an ownership-scoped finance query and then receives only relevant aggregates or minimized transaction fields. Prompts treat user and database strings as untrusted data. Temperatures are zero, numerical claims must come from the supplied context, empty evidence returns “Not enough data,” and responses carry a non-advice disclaimer. Merchant notes are not sent for recent-transaction analysis.
-
-AI calls have a dedicated rate limit, timeout, and bounded retries. With no API key, deterministic rule-based answers remain available.
-
-## Reliability and Security
-
-- Startup rejects missing database configuration or JWT secrets shorter than 32 characters.
-- JWTs validate issuer and audience; API, auth, and AI rate limits are separate.
-- CORS uses an explicit allowlist. Helmet, body limits, ownership checks, and schema validation are enabled.
-- Logs are structured JSON with request IDs and exclude common secret fields.
-- Production errors hide internal details.
-- SIGTERM/SIGINT stop the recurrence scheduler, drain HTTP requests, and close MongoDB.
-- Compound indexes cover user/date/category/type access patterns.
-
-For horizontal deployments, run the recurring scheduler in one designated worker. The database uniqueness key still protects against duplicate recurrence generation if jobs overlap.
-
-## Docker
-
-Set a strong secret and start the web app, API, and MongoDB:
+There is also an end-to-end smoke test. It creates a uniquely named temporary database using `MONGODB_URI`, tests the full API flow, and deletes that database when it finishes:
 
 ```bash
-JWT_SECRET=replace-with-at-least-32-random-characters docker compose up --build
+npm run test:e2e
 ```
 
-Open `http://localhost:8080`. Production deployments should use managed MongoDB, TLS, a secrets manager, and same-site reverse-proxied API routing where practical.
+## Deploy on Vercel
 
-## Manual Validation Flow
+This repository is deployed as one Vercel project. The client is built into `client/dist`, and requests under `/api` are handled by the serverless function.
 
-1. Register, add income and expenses on month boundaries, and confirm dashboard totals.
-2. Edit and delete an expense; confirm category totals, budget usage, and reports change immediately.
-3. Create a recurrence dated on the 29th–31st, preview it, pause/resume it, and run the recurrence test suite.
-4. Filter by every transaction dimension and export; confirm the CSV matches the filter.
-5. Ask AI about an empty period, a category, a budget, and month comparison; confirm all numbers are supported by visible data.
+1. Push the repository to GitHub.
+2. In Vercel, choose **Add New → Project** and import the repository.
+3. Leave the root directory at the repository root. `vercel.json` already supplies the install command, build command, output directory, rewrites, function duration, and daily cron.
+4. Add the following environment variables before the first deployment:
 
-## Deployment Notes
+```text
+NODE_ENV=production
+MONGODB_URI=your_production_mongodb_connection_string
+JWT_SECRET=your_production_secret_of_at_least_32_characters
+JWT_EXPIRES_IN=7d
+CLIENT_URL=https://your-project.vercel.app
+OPENAI_API_KEY=optional
+OPENAI_MODEL=gpt-4o-mini
+CRON_SECRET=a_separate_random_secret
+LOG_LEVEL=info
+```
 
-For Vercel frontend deployment:
+5. Deploy, then verify `/api/health`, registration, CSV import, and one AI-chat question.
 
-- Root directory: `client`
-- Build command: `npm run build`
-- Output directory: `dist`
-- Add `VITE_API_URL` pointing to the deployed backend API URL
+MongoDB Atlas must accept connections from the deployed function. Keep development and production databases separate, and never commit `.env` files or credentials.
 
-The backend is a persistent Express API with a cron job, so deploy it to a Node-friendly host such as Render, Railway, Fly.io, or a VPS. If you want to deploy the API on Vercel too, it should be adapted to Vercel serverless functions first.
-
-## Security Notes
-
-- Do not commit `.env` files.
-- Rotate any exposed API keys before deploying.
-- Use a strong `JWT_SECRET` in production.
-- In MongoDB Atlas, allow only the IPs or services that need database access.
+Pushes to the production branch create production deployments. Other branches and pull requests receive Vercel preview deployments.
