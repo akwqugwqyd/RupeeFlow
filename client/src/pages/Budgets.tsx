@@ -4,10 +4,8 @@ import { Empty, ErrorState, Input, PageTitle, Panel, Select, Skeleton } from "..
 import { api } from "../lib/api";
 import { getCategories } from "../lib/data";
 import { money, monthInput } from "../lib/format";
-import { useAuth } from "../state/AuthContext";
 
 export default function Budgets() {
-  const { user } = useAuth();
   const [month, setMonth] = useState(monthInput());
   const [budgets, setBudgets] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
@@ -32,10 +30,14 @@ export default function Budgets() {
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    await api.post("/budgets", { ...form, month });
-    setForm({ ...form, limit: "" });
-    toast.success("Budget saved");
-    await load();
+    try {
+      await api.post("/budgets", { ...form, month });
+      setForm({ ...form, limit: "" });
+      toast.success("Budget saved");
+      await load();
+    } catch (caught: any) {
+      toast.error(caught.response?.data?.error?.message || caught.response?.data?.message || "Could not save budget");
+    }
   }
 
   return (

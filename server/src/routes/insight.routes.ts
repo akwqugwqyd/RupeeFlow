@@ -10,10 +10,11 @@ import { env } from "../config/env.js";
 
 const router = express.Router();
 router.use(requireAuth);
+const monthSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
 
 router.get(
   "/monthly",
-  validate(z.object({ query: z.object({ month: z.string().regex(/^\d{4}-\d{2}$/).default(currentMonth()) }) })),
+  validate(z.object({ query: z.object({ month: monthSchema.default(currentMonth()) }) })),
   async (req, res, next) => {
     try {
       const { month } = req.validated.query;

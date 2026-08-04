@@ -18,9 +18,10 @@ import {
 
 const router = express.Router();
 router.use(requireAuth);
+const monthSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
 const financeToolArgs = z.object({
   intent: z.enum(["overview", "category_spend", "budget_status", "recent_transactions", "monthly_compare"]).default("overview"),
-  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional(),
+  month: monthSchema.optional(),
   category: z.string().trim().max(60).optional(),
   type: z.enum(["income", "expense"]).optional(),
   limit: z.coerce.number().int().min(1).max(20).optional()
@@ -69,7 +70,7 @@ router.post(
   }
 );
 
-router.get("/monthly-summary", validate(z.object({ query: z.object({ month: z.string().regex(/^\d{4}-\d{2}$/).default(currentMonth()) }) })), async (req, res, next) => {
+router.get("/monthly-summary", validate(z.object({ query: z.object({ month: monthSchema.default(currentMonth()) }) })), async (req, res, next) => {
   try {
     const month = req.validated.query.month;
     const data = await monthlyComparison(req.user._id, month);
@@ -260,7 +261,7 @@ async function agenticFinanceAnswer(userId, message, history = []) {
 }
 
 async function executeFinanceTool(userId, args) {
-  const month = args.month && /^\d{4}-\d{2}$/.test(args.month) ? args.month : currentMonth();
+  const month = args.month && /^\d{4}-(0[1-9]|1[0-2])$/.test(args.month) ? args.month : currentMonth();
   const { start, end } = monthBounds(month);
   const baseMatch: any = { user: userId, date: { $gte: start, $lt: end } };
   if (args.category) baseMatch.category = new RegExp(`^${escapeRegExp(args.category)}$`, "i");
