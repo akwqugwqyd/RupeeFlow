@@ -12,8 +12,7 @@ export function requestContext(req, res, next) {
       method: req.method,
       path: req.originalUrl.split("?")[0],
       statusCode: res.statusCode,
-      durationMs: Math.round(performance.now() - startedAt),
-      userId: req.user?._id?.toString()
+      durationMs: Math.round(performance.now() - startedAt)
     });
   });
   next();

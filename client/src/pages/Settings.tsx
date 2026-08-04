@@ -26,23 +26,35 @@ export default function Settings() {
 
   async function saveProfile(e: React.FormEvent) {
     e.preventDefault();
-    const { data } = await api.put("/auth/me", profileForm);
-    updateUser(data.user);
-    toast.success("Profile updated");
+    try {
+      const { data } = await api.put("/auth/me", profileForm);
+      updateUser(data.user);
+      toast.success("Profile updated");
+    } catch (caught: any) {
+      toast.error(caught.response?.data?.error?.message || caught.response?.data?.message || "Could not update profile");
+    }
   }
 
   async function addCategory(e: React.FormEvent) {
     e.preventDefault();
-    await api.post("/categories", categoryForm);
-    setCategoryForm({ name: "", type: "expense", color: "#4f46e5" });
-    toast.success("Category added");
-    await load();
+    try {
+      await api.post("/categories", categoryForm);
+      setCategoryForm({ name: "", type: "expense", color: "#4f46e5" });
+      toast.success("Category added");
+      await load();
+    } catch (caught: any) {
+      toast.error(caught.response?.data?.error?.message || caught.response?.data?.message || "Could not add category");
+    }
   }
 
   async function remove(id: string) {
-    await api.delete(`/categories/${id}`);
-    toast.success("Category removed");
-    await load();
+    try {
+      await api.delete(`/categories/${id}`);
+      toast.success("Category removed");
+      await load();
+    } catch (caught: any) {
+      toast.error(caught.response?.data?.error?.message || caught.response?.data?.message || "Could not remove category");
+    }
   }
 
   return (

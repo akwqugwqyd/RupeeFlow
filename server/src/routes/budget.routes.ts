@@ -7,11 +7,12 @@ import Transaction from "../models/Transaction.js";
 import { budgetMetrics, currentMonth, monthBounds, roundMoney, shiftMonth } from "../utils/finance.js";
 
 const router = express.Router();
-const body = z.object({ category: z.string().min(1), limit: z.coerce.number().positive(), month: z.string().regex(/^\d{4}-\d{2}$/) });
+const monthSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
+const body = z.object({ category: z.string().min(1), limit: z.coerce.number().positive(), month: monthSchema });
 
 router.use(requireAuth);
 
-router.get("/", validate(z.object({ query: z.object({ month: z.string().regex(/^\d{4}-\d{2}$/).default(currentMonth()) }) })), async (req, res, next) => {
+router.get("/", validate(z.object({ query: z.object({ month: monthSchema.default(currentMonth()) }) })), async (req, res, next) => {
   try {
     const { month } = req.validated.query;
     const { start, end } = monthBounds(month);
