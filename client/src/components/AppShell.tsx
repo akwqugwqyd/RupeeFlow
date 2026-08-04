@@ -1,11 +1,12 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { NavLink } from "react-router-dom";
-import { BarChart3, Bot, Download, FileBarChart, LogOut, Settings, Tags, WalletCards } from "lucide-react";
+import { BarChart3, Bot, Download, FileBarChart, LogOut, PanelLeftClose, PanelLeftOpen, Settings, Tags, WalletCards } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth } from "../state/AuthContext";
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   async function exportCsv() {
     const { data } = await api.get("/transactions/export/csv", { responseType: "blob" });
@@ -19,14 +20,19 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen bg-[#eef2f7]">
-      <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-slate-800 bg-[#0f172a] px-5 py-6 text-white shadow-2xl shadow-slate-950/20 lg:block">
-        <div className="flex items-center gap-3">
-          <div className="grid size-10 place-items-center rounded-2xl bg-slate-100 text-slate-900 shadow-lg shadow-slate-950/20">
-            <WalletCards size={20} />
+      <aside className={`fixed inset-y-0 left-0 z-20 hidden w-64 border-r border-slate-800 bg-[#0f172a] px-5 py-6 text-white shadow-2xl shadow-slate-950/20 transition-transform duration-200 lg:block ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`} aria-hidden={!sidebarOpen}>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="grid size-10 shrink-0 place-items-center rounded-2xl bg-slate-100 text-slate-900 shadow-lg shadow-slate-950/20">
+              <WalletCards size={20} />
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-lg font-extrabold">RupeeFlow</p>
+            </div>
           </div>
-          <div>
-            <p className="text-lg font-extrabold">RupeeFlow</p>
-          </div>
+          <button type="button" onClick={() => setSidebarOpen(false)} className="grid size-9 shrink-0 place-items-center rounded-xl border border-slate-700 bg-slate-900/70 text-slate-200 transition hover:border-slate-500 hover:bg-slate-800 hover:text-white" aria-label="Hide sidebar" title="Hide sidebar">
+            <PanelLeftClose size={18} />
+          </button>
         </div>
         <nav className="mt-10 space-y-1">
           <NavItem to="/" icon={BarChart3} label="Dashboard" />
@@ -38,10 +44,16 @@ export default function AppShell({ children }: { children: ReactNode }) {
         </nav>
       </aside>
 
-      <main className="lg:pl-64">
+      {!sidebarOpen && (
+        <button type="button" onClick={() => setSidebarOpen(true)} className="fixed left-3 top-3 z-30 hidden size-10 place-items-center rounded-xl border border-[#cbd5e1] bg-white text-[#334155] shadow-sm transition hover:border-[#4f46e5] hover:text-[#4f46e5] lg:grid" aria-label="Show sidebar" title="Show sidebar">
+          <PanelLeftOpen size={18} />
+        </button>
+      )}
+
+      <main className={`transition-[padding] duration-200 ${sidebarOpen ? "lg:pl-64" : "lg:pl-0"}`}>
         <header className="sticky top-0 z-10 border-b border-white/70 bg-white/85 px-4 py-3 shadow-sm shadow-slate-200/70 backdrop-blur sm:px-6">
           <div className="flex items-center justify-between gap-4">
-            <div>
+            <div className={sidebarOpen ? "" : "lg:pl-12"}>
               <p className="text-sm font-medium text-[#64748b]">Welcome back</p>
               <h1 className="text-xl font-extrabold text-[#111827]">{user?.name}</h1>
             </div>
