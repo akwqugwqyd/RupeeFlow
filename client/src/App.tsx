@@ -11,12 +11,14 @@ import Reports from "./pages/Reports";
 import { useAuth } from "./state/AuthContext";
 
 function Protected({ children }: { children: ReactNode }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, loading } = useAuth();
+  if (loading) return <div className="min-h-screen bg-[#eef2f7]" />;
   return isAuthenticated ? children : <Navigate to="/login" replace />;
 }
 
 export default function App() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, loading } = useAuth();
+  if (loading) return <div className="min-h-screen bg-[#eef2f7]" />;
   return (
     <Routes>
       <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <Login />} />

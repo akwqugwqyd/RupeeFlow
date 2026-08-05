@@ -25,18 +25,18 @@ await new Promise<void>((resolve) => server.once("listening", resolve));
 const address = server.address();
 if (!address || typeof address === "string") throw new Error("Could not determine smoke-test server port");
 const baseUrl = `http://127.0.0.1:${address.port}/api`;
+let sessionCookie = "";
 
 try {
   const registration = await request("/auth/register", {
     method: "POST",
     body: { name: "E2E User", email: `e2e-${Date.now()}@rupeeflow.test`, password: "test-password-123", monthlyIncomeTarget: 100000 }
   });
-  const token = registration.token as string;
-  assert.ok(token);
+  assert.ok(registration.user);
+  assert.ok(sessionCookie);
 
   const suggestion = await request("/ai/categorize", {
     method: "POST",
-    token,
     body: { text: "Paid ₹450 to Zomato via UPI yesterday" }
   });
   assert.equal(suggestion.amount, 450);
@@ -50,20 +50,20 @@ try {
     `${month}-02,ACME PAYROLL,,100000`,
     `${month}-01,Zomato UPI,450,`
   ].join("\n");
-  const preview = await request("/transactions/import/preview", { method: "POST", token, body: { csv } });
+  const preview = await request("/transactions/import/preview", { method: "POST", body: { csv } });
   assert.equal(preview.summary.ready, 2);
   assert.equal(preview.summary.duplicates, 1);
 
   const transactions = preview.candidates
     .filter((candidate) => candidate.transaction && !candidate.duplicate && !candidate.errors.length)
     .map((candidate) => candidate.transaction);
-  const committed = await request("/transactions/import/commit", { method: "POST", token, body: { transactions } });
+  const committed = await request("/transactions/import/commit", { method: "POST", body: { transactions } });
   assert.equal(committed.imported, 2);
 
-  const listing = await request("/transactions?limit=20", { method: "GET", token });
+  const listing = await request("/transactions?limit=20", { method: "GET" });
   assert.equal(listing.total, 2);
 
-  const chat = await request("/ai/chat", { method: "POST", token, body: { message: "How much did I spend on food this month?", history: [] } });
+  const chat = await request("/ai/chat", { method: "POST", body: { message: "How much did I spend on food this month?", history: [] } });
   assert.match(chat.answer, /450/);
   assert.ok(chat.evidence.some((item) => item.kind === "transaction" && item.transactionId));
   assert.ok(chat.calculations.length > 0);
@@ -77,15 +77,17 @@ try {
   await disconnectDb();
 }
 
-async function request(path: string, options: { method: string; token?: string; body?: unknown }) {
+async function request(path: string, options: { method: string; body?: unknown }) {
   const response = await fetch(`${baseUrl}${path}`, {
     method: options.method,
     headers: {
       ...(options.body ? { "Content-Type": "application/json" } : {}),
-      ...(options.token ? { Authorization: `Bearer ${options.token}` } : {})
+      ...(sessionCookie ? { Cookie: sessionCookie } : {})
     },
     ...(options.body ? { body: JSON.stringify(options.body) } : {})
   });
+  const setCookie = response.headers.get("set-cookie");
+  if (setCookie) sessionCookie = setCookie.split(";")[0];
   const data = await response.json();
   assert.ok(response.ok, `${options.method} ${path} failed (${response.status}): ${JSON.stringify(data)}`);
   return data;

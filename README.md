@@ -21,6 +21,7 @@ The project is designed for Indian spending habits, so the UI uses INR and recog
 - React 19, TypeScript, Vite, Tailwind CSS, and Recharts
 - Node.js, Express 5, TypeScript, and Zod
 - MongoDB and Mongoose
+- JWT sessions stored in secure httpOnly cookies
 - OpenAI API for structured transaction extraction and grounded finance responses
 - Vercel for the web client and serverless API
 

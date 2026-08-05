@@ -4,7 +4,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { validate } from "../middleware/validate.js";
 import User from "../models/User.js";
 import { ensureDefaultCategories } from "../services/category.service.js";
-import { signToken } from "../utils/tokens.js";
+import { authCookieClearOptions, authCookieName, authCookieOptions, signToken } from "../utils/tokens.js";
 
 const router = express.Router();
 
@@ -42,8 +42,8 @@ router.post("/register", validate(registerSchema), async (req, res, next) => {
 
     const user = await (User as any).createWithPassword(req.validated.body);
     await ensureDefaultCategories(user._id);
-    const token = signToken(user);
-    res.status(201).json({ token, user: serializeUser(user) });
+    res.cookie(authCookieName, signToken(user), authCookieOptions());
+    res.status(201).json({ user: serializeUser(user) });
   } catch (error) {
     next(error);
   }
@@ -58,10 +58,16 @@ router.post("/login", validate(loginSchema), async (req, res, next) => {
       throw error;
     }
 
-    res.json({ token: signToken(user), user: serializeUser(user) });
+    res.cookie(authCookieName, signToken(user), authCookieOptions());
+    res.json({ user: serializeUser(user) });
   } catch (error) {
     next(error);
   }
+});
+
+router.post("/logout", (_req, res) => {
+  res.clearCookie(authCookieName, authCookieClearOptions());
+  res.status(204).end();
 });
 
 router.get("/me", requireAuth, (req, res) => {
