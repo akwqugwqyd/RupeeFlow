@@ -1,11 +1,13 @@
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 import { env } from "../config/env.js";
+import { authCookieName } from "../utils/tokens.js";
 
 export async function requireAuth(req, _res, next) {
   try {
     const header = req.headers.authorization || "";
-    const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+    const token = readCookie(req.headers.cookie || "", authCookieName)
+      || (header.startsWith("Bearer ") ? header.slice(7) : null);
     if (!token) {
       const error: any = new Error("Authentication required");
       error.statusCode = 401;
@@ -29,4 +31,12 @@ export async function requireAuth(req, _res, next) {
     (error as any).statusCode = (error as any).statusCode || 401;
     next(error);
   }
+}
+
+function readCookie(cookieHeader: string, name: string) {
+  for (const part of cookieHeader.split(";")) {
+    const [rawKey, ...rawValue] = part.trim().split("=");
+    if (rawKey === name) return decodeURIComponent(rawValue.join("="));
+  }
+  return null;
 }

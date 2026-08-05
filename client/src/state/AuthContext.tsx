@@ -11,18 +11,17 @@ type User = {
 };
 
 type AuthContextValue = {
-  token: string | null;
   user: User | null;
   login: (payload: Record<string, unknown>, mode?: "login" | "register") => Promise<void>;
   updateUser: (user: User) => void;
-  logout: () => void;
+  logout: () => Promise<void>;
   isAuthenticated: boolean;
+  loading: boolean;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [token, setToken] = useState(localStorage.getItem("rupeeflow_token"));
   const [user, setUser] = useState(() => {
     const raw = localStorage.getItem("rupeeflow_user");
     try {
@@ -32,19 +31,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return null;
     }
   });
+  const [loading, setLoading] = useState(true);
 
   async function login(payload, mode = "login") {
     const { data } = await api.post(`/auth/${mode}`, payload);
-    localStorage.setItem("rupeeflow_token", data.token);
     localStorage.setItem("rupeeflow_user", JSON.stringify(data.user));
-    setToken(data.token);
     setUser(data.user);
   }
 
-  function logout() {
-    localStorage.removeItem("rupeeflow_token");
+  async function logout() {
+    try {
+      await api.post("/auth/logout");
+    } catch {
+      // Local session cleanup should still happen if the server session is already gone.
+    }
     localStorage.removeItem("rupeeflow_user");
-    setToken(null);
     setUser(null);
   }
 
@@ -54,11 +55,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
+    localStorage.removeItem("rupeeflow_token");
+    api.get("/auth/me")
+      .then(({ data }) => {
+        localStorage.setItem("rupeeflow_user", JSON.stringify(data.user));
+        setUser(data.user);
+      })
+      .catch(() => {
+        localStorage.removeItem("rupeeflow_user");
+        setUser(null);
+      })
+      .finally(() => setLoading(false));
+
     window.addEventListener("rupeeflow:unauthorized", logout);
     return () => window.removeEventListener("rupeeflow:unauthorized", logout);
   }, []);
 
-  const value = useMemo(() => ({ token, user, login, updateUser, logout, isAuthenticated: Boolean(token) }), [token, user]);
+  const value = useMemo(() => ({ user, login, updateUser, logout, isAuthenticated: Boolean(user), loading }), [user, loading]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
